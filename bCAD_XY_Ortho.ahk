@@ -13,20 +13,21 @@ SetWorkingDir %A_ScriptDir%
 #Include %A_ScriptDir%\Const_Process.ahk
 #Include %A_ScriptDir%\Const_Memory.ahk
 #Include %A_ScriptDir%\RemoteTreeViewClass.ahk
+
+;переменные для XY_Ortho
 hItem=0
 findtext=""
 ArrayWindowsWithTreeView:=[]
-ArrayWindowsWithTreeView[1]:="ГЃГ Г­ГЄ Г¬Г ГІГҐГ°ГЁГ Г«Г®Гў"
-ArrayWindowsWithTreeView[2]:="Г‘ГҐГ°Г¤Г¶ГҐГўГЁГ­Г "
-ArrayWindowsWithTreeView[3]:="ГЊГ ГІГҐГ°ГЁГ Г«"
-ArrayWindowsWithTreeView[4]:="ГЃГ Г­ГЄ ГЇГ°Г®ГґГЁГ«ГҐГ©"
-ArrayWindowsWithTreeView[5]:="ГЉГ°ГҐГЇГҐГ¦ ГЁ ГЄГ®Г¬ГЇГ«ГҐГЄГІГіГѕГ№ГЁГҐ"
-ArrayWindowsWithTreeView[6]:="Г‚Г±ГІГ ГўГЄГ  ГЇГ°Г®ГґГЁГ«ГҐГ©"
-ArrayWindowsWithTreeView[7]:="Г‹ГЁГ¶ГҐГўГ Гї"
-ArrayWindowsWithTreeView[8]:="Г’Г»Г«ГјГ­Г Гї"
-ArrayWindowsWithTreeView[9]:="ГЋГ±Г­Г®ГўГ "
+ArrayWindowsWithTreeView[1]:="Банк материалов"
+ArrayWindowsWithTreeView[2]:="Сердцевина"
+ArrayWindowsWithTreeView[3]:="Материал"
+ArrayWindowsWithTreeView[4]:="Банк профилей"
+ArrayWindowsWithTreeView[5]:="Крепеж и комплектующие"
+ArrayWindowsWithTreeView[6]:="Вставка профилей"
+ArrayWindowsWithTreeView[7]:="Лицевая"
+ArrayWindowsWithTreeView[8]:="Тыльная"
+ArrayWindowsWithTreeView[9]:="Основа"
 couWWTV:=ArrayWindowsWithTreeView.MaxIndex()
-
 
 found:=0
 markerBezGroup:=true
@@ -38,6 +39,63 @@ Stringbcadexe4:="bCAD1111"
 Stringbcadexe:="b[cC][aA][dD]\.*"
 dannieKlavi:=""
 toolActive:=false
+
+ZapomnitFindtext:=""
+;код для Соответствия кромок
+ToolTip, Загружаем файл соответствия кромки
+FilenameIniSootvetstvieKromki:="\КромкаПоУмолчанию.ini"
+FilenameIniSootvetstvieKromki:=A_ScriptDir FilenameIniSootvetstvieKromki
+FileRead, tempBufferIni, %FilenameIniSootvetstvieKromki% ;считываем файл
+if (ErrorLevel)
+{
+	MsgBox, ошибка чтения файла соответствия плит и кромки: %ErrorLevel%. Программа продолжает работу
+}
+MassivSootvetstviya:=[] ;массив оформлен в виде пар данных. Нечётные - это плита, чётные - это кромка для плиты
+couMasSootv:=0
+loop, parse, tempBufferIni, "`r`n"
+{
+		ToolTip, Читаем соответствие кромки из файла
+		PosRazdelenie:=InStr(A_LoopField,";")
+		if (PosRazdelenie) ;если этот символ есть, то значит это строка соответствия
+		{
+			;MsgBox, %A_LoopField%
+			newline:="`r`n"
+			strin1:=StrReplace(A_LoopField,newline)
+			dlinaStroki:=StrLen(strin1)
+			rightCount:=dlinaStroki-PosRazdelenie
+			leftCount:=dlinaStroki-rightCount-1
+			leftVal:=SubStr(strin1,1,leftCount)
+			rightVal:=SubStr(strin1,PosRazdelenie+1,rightCount)
+			loop ;удаляем пробелы в начале фразы (если они там есть)
+			{
+				firstSymb:=SubStr(rightVal,1,1)
+				if (firstSymb=" ") ;если первый пробел, то удаляем его
+				{
+					rightVal:=SubStr(rightVal,2,StrLen(rightVal)-1)
+				}
+				else
+					break
+			}
+			loop ;удаляем пробелы в начале фразы (если они там есть)
+			{
+				firstSymb:=SubStr(leftVal,1,1)
+				if (firstSymb=" ") ;если первый пробел, то удаляем его
+				{
+					leftVal:=SubStr(leftVal,2,StrLen(leftVal)-1)
+				}
+				else
+					break
+			}
+			;заполняем массив данными
+			couMasSootv++
+			MassivSootvetstviya[couMasSootv]:=leftVal
+			couMasSootv++
+			MassivSootvetstviya[couMasSootv]:=rightVal
+		}
+} ;конец чтения соответствия кромок
+ToolTip, Чтение из файла завершено
+
+counterPoiska:=0 ;счётчик кромки по умолчанию, увеличивается при нажатии F4. Используется для нахождения следующих кромок по умолчанию для конкретной плиты
 
 SetKeyDelay, 1000, 0
 for proc in ComObjGet("winmgmts:").ExecQuery("Select * from Win32_Process")
@@ -54,23 +112,15 @@ for proc in ComObjGet("winmgmts:").ExecQuery("Select * from Win32_Process")
 		}
 		found++
 	}
-    ;LV_Add("", proc.Name)
 }
-;MsgBox, %String2%
-;~ PID := DllCall("GetCurrentProcessId")
-;~ MsgBox, %PID%
-;~ Process,Exist ,bCAD_XY_Ortho.exe
-;~ MsgBox, %ErrorLevel%
-;~ if (ErrorLevel=0)
-;~ {
+
 TrayTip, Hotkeys bCAD enable, Press F8 to pause hotkeys, 1
-;~ SetTitleMatchMode, 1
-;~ SetTitleMatchMode, Slow
 SetTitleMatchMode, RegEx
 
 Hotkey,~Break, LabelEnablebCAD
 
 Hotkey, ~F3, LabelProstoAlt
+Hotkey, ~F4, LabelProstoAlt
 Hotkey, ~F7, LabelProstoAlt
 ;Hotkey, If, isWindowbCAD()
 Hotkey, IfWinActive, ahk_exe %Stringbcadexe%
@@ -164,24 +214,28 @@ Hotkey,~^b, LabelCtrlShiftA
 ;Hotkey, IfWinActive, ahk_exe %Stringbcadexe%
 Hotkey,~^r, LabelCtrlShiftA
 
-;Г±Г®Г§Г¤Г ВёГ¬ Г±ГЇГЁГ±Г®ГЄ Г®ГЄГ®Г­, ГЈГ¤ГҐ ГЎГіГ¤ГҐГІ Г¤ГҐГ©Г±ГІГўГ®ГўГ ГІГј ГіГ±ГЄГ®Г°ГҐГ­Г­Г»Г© ГўГўГ®Г¤
+;создаём список окон, где будет действовать ускоренный ввод
 ArrayWin := []
-ArrayWin[1]:="ГЏГҐГ°ГўГ Гї ГІГ®Г·ГЄГ "
-ArrayWin[2]:="ГђГ Г±ГЇГ®Г«Г®Г¦ГҐГ­ГЁГҐ ГЎГ Г§Г®ГўГ®Г© ГІГ®Г·ГЄГЁ"
-ArrayWin[3]:="ГЃГ Г§Г®ГўГ Гї ГІГ®Г·ГЄГ "
-ArrayWin[4]:="Г‚ГІГ®Г°Г Гї ГІГ®Г·ГЄГ "
-ArrayWin[5]:="ГЌГ®ГўГ®ГҐ ГЇГ®Г«Г®Г¦ГҐГ­ГЁГҐ ГЎГ Г§Г®ГўГ®Г© ГІГ®Г·ГЄГЁ"
-ArrayWin[6]:="Г„Г°ГіГЈГ®Г© ГіГЈГ®Г« ГЇГ°ГїГ¬Г®ГіГЈГ®Г«ГјГ­ГЁГЄГ "
+ArrayWin[1]:="Первая точка"
+ArrayWin[2]:="Расположение базовой точки"
+ArrayWin[3]:="Базовая точка"
+ArrayWin[4]:="Вторая точка"
+ArrayWin[5]:="Новое положение базовой точки"
+ArrayWin[6]:="Другой угол прямоугольника"
 
 ArrayWinFirstPoint:=4
 counterArr:=ArrayWin.MaxIndex()
 
 ArrayAlterWin := []
-ArrayAlterWin[1]:="ГђГ Г¤ГЁГіГ±"
+ArrayAlterWin[1]:="Радиус"
 
 counterAlterArr:=ArrayAlterWin.MaxIndex()
 
+
+SetTimer, LoopDoska, 1000
+
 Return
+;конец кода инициализации программы. Ниже - обработчики Hotkey
 
 LabelX:
 ;MsgBox, ololo1
@@ -210,7 +264,7 @@ if (isWindowbCAD())
 }
 Return
 
-;Г­Г Г¦Г ГІГЁГҐ ГќГ­ГІГҐГ°
+;нажатие Энтер
 EnterPress:
 ;MsgBox, ololo enter
 SetTitleMatchMode, 1
@@ -250,13 +304,13 @@ loop, %counterArr%
 		}
 		;MsgBox, %textOutput%
 		firstSymbol:=SubStr(textOutput,1,1)
-		;ГҐГ±Г«ГЁ ГўГўГҐГ¤ГҐГ­Г  Г®Г¤Г­Г  ГЄГ®Г®Г°Г¤ГЁГ­Г ГІГ  (ГЎГҐГ§ ГЇГ°Г®ГЎГҐГ«Г )
+		;если введена одна координата (без пробела)
 		if (InStr(textOutput," ")=0)
 		{
 			;~ MsgBox, res %textOutput%
 			;~ try res := doc.parentWindow.eval(textOutput)
 			;~ catch {
-			  ;~ MsgBox, Г”Г®Г°Г¬ГіГ«Г  Г­ГҐ Г°Г Г±ГЇГ®Г§Г­Г Г­Г 
+			  ;~ MsgBox, Формула не распознана
 			  ;~ Return
 			;~ }
 			;~ ;GuiControl, Focus, Edit1
@@ -275,7 +329,7 @@ loop, %counterArr%
 		if (firstSymbol="@")
 			textOutput:=StrReplace(textOutput,"@","")
 		
-		;ГЇГ°ГҐГ®ГЎГ°Г Г§Г®ГўГ Г­ГЁГҐ Г Г°ГЁГґГ¬ГҐГІГЁГ·ГҐГ±ГЄГЁГµ Г¤ГҐГ©Г±ГІГўГЁГ©
+		;преобразование арифметических действий
 		NewTextOutput:=""
 		loop, Parse, textOutput, %A_Space%
 		{
@@ -283,7 +337,7 @@ loop, %counterArr%
 			
 			try res := doc.parentWindow.eval(A_LoopField)
 			catch {
-			  MsgBox, Г”Г®Г°Г¬ГіГ«Г  Г­ГҐ Г°Г Г±ГЇГ®Г§Г­Г Г­Г 
+			  MsgBox, Формула не распознана
 			  Return
 			}
 			;GuiControl, Focus, Edit1
@@ -324,7 +378,7 @@ loop, %counterArr%
 			GoTo zavershenie
 		}
 	}
-	else ;ГҐГ±Г«ГЁ ГЅГІГ® Г¤Г°ГіГЈГ®ГҐ Г®ГЄГ­Г®
+	else ;если это другое окно
 	{
 		controlNeed:="Edit1"
 		ControlGetText, textOutput, %controlNeed%
@@ -335,7 +389,7 @@ loop, %counterArr%
 			{
 			try res := doc.parentWindow.eval(textOutput)
 			catch {
-			  MsgBox, Г”Г®Г°Г¬ГіГ«Г  Г­ГҐ Г°Г Г±ГЇГ®Г§Г­Г Г­Г 
+			  MsgBox, Формула не распознана
 			  Return
 			}
 			;GuiControl, Focus, Edit1
@@ -395,6 +449,10 @@ if (vklucheno=true)
 	Hotkey, x, Off
 	Hotkey, y, Off
 	Hotkey, +2, Off
+	Hotkey, ~Left, Off
+	Hotkey, ~Right, Off
+	Hotkey, ~Up, Off
+	Hotkey, ~Down, Off
 	tempVar:= WinExist("ahk_exe" Stringbcadexe3)
 	If (tempVar)
 	{
@@ -415,6 +473,7 @@ if (vklucheno=true)
 		Hotkey, z, Off
 		Hotkey, b, Off
 		Hotkey, e, Off
+
 	}
 	;Sleep, 1000
 }
@@ -434,6 +493,10 @@ else
 	Hotkey, x, On
 	Hotkey, y, On
 	Hotkey, +2, On
+	Hotkey, ~Left, On
+	Hotkey, ~Right, On
+	Hotkey, ~Up, On
+	Hotkey, ~Down, On
 	tempVar:=% WinExist("ahk_exe" Stringbcadexe3)
 	If (tempVar)
 	{
@@ -454,6 +517,7 @@ else
 		Hotkey, z, On
 		Hotkey, b, On
 		Hotkey, e, On
+		
 	}
 	
 	;Sleep, 100
@@ -471,7 +535,7 @@ Send, {Right}
 ;Sleep, 50
 Send, {Esc 3}
 VarSetCapacity(Name, 256, 0)
-;ГЇГ°Г®ГўГҐГ°ГЄГ  Г±Г®Г±ГІГ®ГїГ­ГЁГї ГґГ«Г Г¦ГЄГ 
+;проверка состояния флажка
 WinGet,hWin,ID,%Stringbcad%
 hMenu:=DllCall("GetMenu", "UInt", hWin)
 hSubMenu:=DllCall("GetSubMenu", "UInt", hMenu, "UInt", 4)
@@ -532,16 +596,16 @@ MouseGetPos, mouseX2, mouseY2
 difX21:=mouseX2-mouseX1
 difY21:=mouseY2-mouseY1
 ;MsgBox, %difX21% %difY21%
-;Г®ГЇГ°ГҐГ¤ГҐГ«ГїГҐГ¬, ГЇГ® ГЄГ ГЄГ®Г© Г®Г±ГЁ ГЎГ»Г«Г® ГЎГ®Г«ГјГёГҐ ГЇГҐГ°ГҐГ¬ГҐГ№ГҐГ­ГЁГҐ
+;определяем, по какой оси было больше перемещение
 if (Abs(difX21)>Abs(difY21))
 {
 ;MsgBox, %mouseX2% %mouseY2%
-		if (difX21>0) ;Г±Г¬ГҐГ№ГҐГ­ГЁГҐ ГўГЇГ°Г ГўГ®
+		if (difX21>0) ;смещение вправо
 		{
 			napravlenie:="right"
 			;Goto LabelCtrlShiftA
 		}
-		else ;Г±Г¬ГҐГ№ГҐГ­ГЁГҐ ГўГ«ГҐГўГ®
+		else ;смещение влево
 		{
 			napravlenie:="left"
 			;Goto LabelCtrlShiftA
@@ -549,12 +613,12 @@ if (Abs(difX21)>Abs(difY21))
 }
 else
 {
-	if (difY21>0) ;Г±Г¬ГҐГ№ГҐГ­ГЁГҐ ГўГ­ГЁГ§
+	if (difY21>0) ;смещение вниз
 		{
 			napravlenie:="down"
 			;Goto LabelCtrlShiftA
 		}
-		else ;Г±Г¬ГҐГ№ГҐГ­ГЁГҐ ГўГўГҐГ°Гµ
+		else ;смещение вверх
 		{
 			napravlenie:="up"
 			;Goto LabelCtrlShiftA
@@ -610,10 +674,13 @@ If WinExist("ahk_exe" Stringbcadexe)
 			ControlGet TVId, Hwnd,,%controlNeed%, % "ahk_id " WinId
 			if (ErrorLevel)
 			{
-				ToolTip, TreeView Г­ГҐ Г­Г Г©Г¤ГҐГ­Г®
+				PrintString:="TreeView не найдено"
+				if ((tooltipstring<>"") And (tooltipstring<>"-1")) ;если соответствие не пусто, то выводим соответствие
+					PrintString:=tooltipstring
+				ToolTip, %PrintString%
 				SetTimer, RemoveToolTip, -1000
 				Return
-				;MsgBox, ГЋГёГЁГЎГЄГ . TreeView Г­ГҐ Г­Г Г©Г¤ГҐГ­
+				;MsgBox, Ошибка. TreeView не найден
 			}
 			ControlGetPos, XTree, YTree,,,%controlNeed%,% "ahk_id " WinId
 			;MsgBox, XTree %XTree% YTree %YTree%
@@ -621,38 +688,72 @@ If WinExist("ahk_exe" Stringbcadexe)
 			;MsgBox, ololo
 			;MsgBox, A_ThisHotkey %A_ThisHotkey%
 			massivFraz:=[]
-			fraza:="Г”Г°Г Г§Г  ГЁГ«ГЁ ГЄГ«ГѕГ·ГҐГўГ»ГҐ Г±Г«Г®ГўГ  Г·ГҐГ°ГҐГ§ ГЇГ°Г®ГЎГҐГ«. ГЊГ®Г¦Г­Г® ГўГўГҐГ±ГІГЁ Г·Г Г±ГІГј Г±Г«Г®ГўГ  ГЁГ«ГЁ Г·Г Г±ГІГј ГґГ°Г Г§Г». ГЏГ®ГЁГ±ГЄ ГЁГ№ГҐГІ ГўГµГ®Г¦Г¤ГҐГ­ГЁГҐ ГўГ±ГҐГµ Г±Г«Г®Гў (Гў Г«ГѕГЎГ®Г© ГЇГ®Г±Г«ГҐГ¤Г®ГўГ ГІГҐГ«ГјГ­Г®Г±ГІГЁ). ГЏГ®ГЁГ±ГЄ Г­ГҐ Г·ГіГўГ±ГІГўГЁГІГҐГ«ГҐГ­ ГЄ Г°ГҐГЈГЁГ±ГІГ°Гі. ГЏГ°ГЁ Г­Г Г¦Г ГІГЁГЁ F7 ГЇГ®ГЁГ±ГЄ ГЇГ°Г®ГЁГ§ГўГ®Г¤ГЁГІГ±Гї Г± Г­Г Г·Г Г«Г  Г¤ГҐГ°ГҐГўГ . ГЏГ°ГЁ Г­Г Г¦Г ГІГЁГЁ F3 ГЇГ®ГЁГ±ГЄ ГЇГ°Г®ГЁГ§ГўГ®Г¤ГЁГІГ±Гї Г± ГЇГ®Г±Г«ГҐГ¤Г­ГҐГ© Г­Г Г©Г¤ГҐГ­Г­Г®Г© ГЇГ®Г§ГЁГ¶ГЁГЁ Г¤Г® ГЄГ®Г­Г¶Г  Г¤ГҐГ°ГҐГўГ "
-			If (A_ThisHotkey="~F7")
+			fraza:="Фраза или ключевые слова через пробел. Можно ввести часть слова или часть фразы. Поиск ищет вхождение всех слов (в любой последовательности). Поиск не чувствителен к регистру. При нажатии F7 поиск производится с начала дерева. При нажатии F3 поиск производится с последней найденной позиции до конца дерева"
+			If (A_ThisHotkey="~F7") ;если Hotkey F7, то вводим данные. Если Hotkey любой другой, то данные не вводим
 			{
 				;ToolTip, F7
 				;Sleep, 1000
-				hItem=0
+				If (ZapomnitFindtext<>"")
+				{
+					findtext:=ZapomnitFindtext
+				}
+				hItem:=0 ;будем вести поиск с начала дерева
 				if (findtext<>"")
-					InputBox, findtext, ГЏГ®ГЁГ±ГЄ, %fraza%,,200,100,,,,,%findtext%
+					InputBox, findtext, Поиск, %fraza%,,200,100,,,,,%findtext% ;просим пользователя ввести искомую фразу
 				Else
-					InputBox, findtext, ГЏГ®ГЁГ±ГЄ, %fraza%,,200,100
+					InputBox, findtext, Поиск, %fraza%,,200,100
 				If (ErrorLevel)
 					Return
+				ZapomnitFindtext:=findtext
+				ToolTip, %findtext%
 			}
-			if (findtext="")
+			else
 			{
-				ToolTip, Г‘ГІГ°Г®ГЄГ  ГЇГ®ГЁГ±ГЄГ  ГЇГіГ±ГІГ 
+				if (A_ThisHotkey="~F4") ;если F4
+				{
+					counterPoiska++
+					UBound:=massivSootvetstvieKromki.maxIndex()
+					if (counterPoiska>UBound) ;если счётчик кромки по умолчанию меньше длины массива, то переходим к соответствующему значению в массиве
+						counterPoiska:=1
+					findtext:=massivSootvetstvieKromki[counterPoiska]
+					hItem:=0 ;будем всегда искать с начала дерева
+					
+					;~ if ((findtextPublic<>"") And (findtextPublic<>"-1")) ;проверка на пустую строку
+						;~ findtext:=findtextPublic
+					if ((findtext<>"") And (findtext<>"-1")) ;проверка на пустую строку
+						ToolTip, %tooltipstring%
+					else
+					{
+						ToolTip, Кромки соответствия не найдено
+						Sleep, 500
+						Return
+					}
+				}
+				;else
+					;ToolTip, %findtext%
+			}
+			
+			findtextNoLower:=findtext
+			findtext:=StrReplace(findtext,"х","x") ;заменяем русскую х на английскую х
+			StringLower, findtext, findtext
+			
+			if (findtext="") ;если искомая фраза пуста, то ничего не ищем
+			{
+				ToolTip, Строка поиска пуста
 				SetTimer, RemoveToolTip, -1000
 				Return
 			}
 			else
 			{
-				loop, Parse, findtext, %A_Space%
+				loop, Parse, findtext, %A_Space% ;парсим искомую строку строку на отдельные части для поиска. Разделителями являются пробелы
 				{
-					;MsgBox, A_LoopField %A_LoopField%
 					massivFraz[A_Index]:=A_LoopField
-					;MsgBox, % massivFraz[A_Index]
 				}
 				couMassivFraz:=massivFraz.maxIndex()
-				;ГЇГ Г°Г±ГЁГ¬ Г±ГІГ°Г®ГЄГі
+				
 			}
 			
-			ToolTip, %findtext%
+			
 			
 			;hItem = 0  ; Causes the loop's first iteration to start the search at the top of the tree.
 			Loop
@@ -661,46 +762,60 @@ If WinExist("ahk_exe" Stringbcadexe)
 				hItem := MyTV.GetNext(hItem, "Full")
 				if not hItem  ; No more items in tree.
 				{
-					ToolTip, %findtext% . ГЉГ®Г­ГҐГ¶ Г¤ГҐГ°ГҐГўГ 
+					ToolTip, %findtext% . Конец дерева
 					SetTimer, RemoveToolTip, -1000
 					break
 				}
 				ItemText := MyTV.GetText(hItem)
+				ItemText:=StrReplace(ItemText,"х","x") ;заменяем русскую х на английскую х
 				StringLower, ItemText, ItemText
 				;StringLower, findtext1, findtext
 				Naideno:=0
-				Loop, %couMassivFraz%
+				If (A_ThisHotkey="~F4")
 				{
-					findtext1:=massivFraz[A_Index]
-					StringLower, findtext1, findtext1
-					if (InStr(ItemText,findtext1))
-					{
+					If (InStr(ItemText,findtext)) ; при Hotkey F4 важно соответствие фразы
 						Naideno:=1
-						if (previoushItem>=hItem)
-						{
-						;	ToolTip, %findtext% . ГЏГ®ГЁГ±ГЄ Г­Г Г·Г ГІ Г±Г­Г Г·Г Г«Г 
-							;SetTimer, RemoveToolTip, -1000
-							;Return
-						}
-					}
 					else
-					{
 						Naideno:=0
-						break
+				}
+				Else ;при любой другой Hotkey (не F4) проводим проверку на соответствие каждого из слов
+				{
+					Loop, %couMassivFraz%
+					{
+						findtext1:=massivFraz[A_Index]
+						StringLower, findtext1, findtext1
+						if (InStr(ItemText,findtext1))
+						{
+							Naideno:=1
+							if (previoushItem>=hItem)
+							{
+							;	ToolTip, %findtext% . Поиск начат сначала
+								;SetTimer, RemoveToolTip, -1000
+								;Return
+							}
+						}
+						else
+						{
+							Naideno:=0
+							break
+						}
 					}
 				}
 				
 				if (Naideno=1)
 				{
 					MyTV.SetSelection(hItem)
+					CoordMode, Mouse, Screen
+					MouseGetPos, OutputVarX, OutputVarY ;считываем координаты мыши (потом вернём её в них)
 					CoordMode, Mouse, Relative
-					
-					MouseMove, 105, YTree+10 ;ГЇГҐГ°ГҐГ¬ГҐГ№Г ГҐГ¬ ГЄГіГ°Г±Г®Г° Гў ГЇГ®Г§ГЁГ¶ГЁГѕ Г¤ГҐГ°ГҐГўГ 
+					MouseMove, 105, YTree+10 ;перемещаем курсор в первую позицию дерева
 					Sleep, 50
 					Click
+					CoordMode, Mouse, Screen
+					MouseMove, OutputVarX, OutputVarY ;возвращаем курсор в исходное положение
 					Click, WheelUp
 					
-					if (ololo<>hItem) ;ГҐГ±Г«ГЁ Г­Г Г©Г¤ГҐГ­Г­Г Гї ГїГ·ГҐГ©ГЄГ  Г­ГҐ ГўГ»Г¤ГҐГ«ГҐГ­Г  Г±ГҐГ©Г·Г Г±, ГІГ® ГЇГ»ГІГ ГҐГ¬Г±Гї ГҐВё ГўГ»Г¤ГҐГ«ГЁГІГј
+					if (ololo<>hItem) ;если найденная ячейка не выделена сейчас, то пытаемся её выделить
 					{
 						loop, 100
 						{
@@ -734,7 +849,8 @@ If WinExist("ahk_exe" Stringbcadexe)
 			
 		;~ }
 	;~ }
-ToolTip, %findtext%. ГЌГҐ Г­Г Г©Г¤ГҐГ­Г®
+ToolTip, %findtextNoLower%. Не найдено
+counterPoiska:=0
 SetTimer, RemoveToolTip, -1000
 }
 Return
@@ -758,87 +874,87 @@ Return
 LabelQ:
 if (isWindowbCAD())
 {
-	WinMenuSelectItem, %stringbCAD%,,ГЏГ°Г ГўГЄГ ,ГЏГ®Г¬ГҐГІГЁГІГј
+	WinMenuSelectItem, %stringbCAD%,,Правка,Пометить
 }
 
 LabelW:
 if (isWindowbCAD())
 {
-	WinMenuSelectItem, %stringbCAD%,,ГЏГ°Г ГўГЄГ ,Г‘Г­ГїГІГј ГЇГ®Г¬ГҐГІГЄГі
+	WinMenuSelectItem, %stringbCAD%,,Правка,Снять пометку
 }
 Return
 
 LabelR:
 if (isWindowbCAD())
 {
-	WinMenuSelectItem, %stringbCAD%,,Г€Г­Г±ГІГ°ГіГ¬ГҐГ­ГІГ»,Г’Г°Г Г­Г±ГґГ®Г°Г¬Г Г¶ГЁГЁ,ГЏГ®ГўГҐГ°Г­ГіГІГј
+	WinMenuSelectItem, %stringbCAD%,,Инструменты,Трансформации,Повернуть
 }
 else
-	Send, ГЄ
+	Send, к
 Return
 
 LabelA:
 if (isWindowbCAD())
 {
-	WinMenuSelectItem, %stringbCAD%,,Г€Г­Г±ГІГ°ГіГ¬ГҐГ­ГІГ»,Г’Г°Г Г­Г±ГґГ®Г°Г¬Г Г¶ГЁГЁ,ГЏГҐГ°ГҐГ¬ГҐГ±ГІГЁГІГј
+	WinMenuSelectItem, %stringbCAD%,,Инструменты,Трансформации,Переместить
 }
 else
-	Send, Гґ
+	Send, ф
 Return
 
 LabelS:
 if (isWindowbCAD())
 {
-	WinMenuSelectItem, %stringbCAD%,,Г€Г­Г±ГІГ°ГіГ¬ГҐГ­ГІГ»,Г’Г°Г Г­Г±ГґГ®Г°Г¬Г Г¶ГЁГЁ,ГЉГ®ГЇГЁГ°Г®ГўГ ГІГј
+	WinMenuSelectItem, %stringbCAD%,,Инструменты,Трансформации,Копировать
 }
 Return
 
 LabelD:
 if (isWindowbCAD())
 {
-	WinMenuSelectItem, %stringbCAD%,,Г€Г­Г±ГІГ°ГіГ¬ГҐГ­ГІГ»,Г’Г°Г Г­Г±ГґГ®Г°Г¬Г Г¶ГЁГЁ,Г‘Г¤ГўГЁГЈ
+	WinMenuSelectItem, %stringbCAD%,,Инструменты,Трансформации,Сдвиг
 }
 Return
 
 LabelV:
 if (isWindowbCAD())
 {
-	WinMenuSelectItem, %stringbCAD%,,Г€Г­Г±ГІГ°ГіГ¬ГҐГ­ГІГ»,Г€Г§Г¬ГҐГ°ГҐГ­ГЁГї,Г‚ГҐГ°ГІГЁГЄГ Г«ГјГ­Г»Г© Г°Г Г§Г¬ГҐГ°
+	WinMenuSelectItem, %stringbCAD%,,Инструменты,Измерения,Вертикальный размер
 }
 Return
 
 LabelC:
 if (isWindowbCAD())
 {
-	WinMenuSelectItem, %stringbCAD%,,Г€Г­Г±ГІГ°ГіГ¬ГҐГ­ГІГ»,Г€Г§Г¬ГҐГ°ГҐГ­ГЁГї,ГѓГ®Г°ГЁГ§Г®Г­ГІГ Г«ГјГ­Г»Г© Г°Г Г§Г¬ГҐГ°
+	WinMenuSelectItem, %stringbCAD%,,Инструменты,Измерения,Горизонтальный размер
 }
 Return
 
 LabelM:
 if (isWindowbCAD())
 {
-	WinMenuSelectItem, %stringbCAD%,,Г€Г­Г±ГІГ°ГіГ¬ГҐГ­ГІГ»,Г’Г°Г Г­Г±ГґГ®Г°Г¬Г Г¶ГЁГЁ,Г‡ГҐГ°ГЄГ Г«ГјГ­Г® Г®ГІГ°Г Г§ГЁГІГј
+	WinMenuSelectItem, %stringbCAD%,,Инструменты,Трансформации,Зеркально отразить
 }
 Return
 
 LabelZ:
 if (isWindowbCAD())
 {
-	WinMenuSelectItem, %stringbCAD%,,Г€Г­Г±ГІГ°ГіГ¬ГҐГ­ГІГ»,Г“Г±ГІГ Г­Г®ГўГЄГЁ Г°ГҐГ¤Г ГЄГІГ®Г°Г ,ГЊГ Г±ГёГІГ ГЎГЁГ°Г®ГўГ Г­ГЁГҐ Г®ГЎГ«Г Г±ГІГЁ
+	WinMenuSelectItem, %stringbCAD%,,Инструменты,Установки редактора,Масштабирование области
 }
 Return
 
 LabelB:
 if (isWindowbCAD())
 {
-	WinMenuSelectItem, %stringbCAD%,,Г€Г­Г±ГІГ°ГіГ¬ГҐГ­ГІГ»,Г’Г°Г Г­Г±ГґГ®Г°Г¬Г Г¶ГЁГЁ,Г‘Г®ГЎГ°Г ГІГј Гў ГЈГ°ГіГЇГЇГі
+	WinMenuSelectItem, %stringbCAD%,,Инструменты,Трансформации,Собрать в группу
 }
 Return
 
 LabelE:
 if (isWindowbCAD())
 {
-	WinMenuSelectItem, %stringbCAD%,,Г€Г­Г±ГІГ°ГіГ¬ГҐГ­ГІГ»,Г’Г°Г Г­Г±ГґГ®Г°Г¬Г Г¶ГЁГЁ,ГђГ Г§Г¤ГҐГ«ГЁГІГј ГЈГ°ГіГЇГЇГі
+	WinMenuSelectItem, %stringbCAD%,,Инструменты,Трансформации,Разделить группу
 }
 Return
 
@@ -854,7 +970,7 @@ LabelCtrlShiftA:
 	Send, ^+a
 	Sleep, 10
 	Click, WD
-	;WinMenuSelectItem, %stringbCAD%,,Г€Г­Г±ГІГ°ГіГ¬ГҐГ­ГІГ»,Г“Г±ГІГ Г­Г®ГўГЄГЁ Г°ГҐГ¤Г ГЄГІГ®Г°Г ,Г“Г¬ГҐГ­ГјГёГЁГІГј Г­Г  10`%
+	;WinMenuSelectItem, %stringbCAD%,,Инструменты,Установки редактора,Уменьшить на 10`%
 	;Sleep, 1000
 }
 Return
@@ -888,21 +1004,23 @@ return
 
 labelDown:
 labelUp:
-;ГЇГ°Г®ГўГҐГ°ГїГҐГ¬, Гў ГЄГ ГЄГ®Г¬ Г¬Г» Г®ГЄГ­ГҐ
+labelLeft:
+labelRight:
+;проверяем, в каком мы окне
 loop, %counterArr%
 {
 	needle:=ArrayWin[A_Index]
 	IfWinActive, %needle%
 	{
-		;Г§Г ГЇГ®Г¬ГЁГ­Г ГҐГ¬ Г§Г­Г Г·ГҐГ­ГЁГҐ
+		;запоминаем значение
 		controlNeed:="Edit1"
 		ControlGetText, znachenie, %controlNeed%
-		;ГЇГ°Г®ГўГҐГ°ГїГҐГ¬ Г§Г­Г Г·ГҐГ­ГЁГҐ
-		if (!InStr(znachenie," ")) ;ГҐГ±Г«ГЁ Г­ГҐГІ ГЇГ°Г®ГЎГҐГ«Г®Гў, ГІГ® ГўГўГҐГ¤ВёГ­Г Гї ГЄГ®Г®Г°Г¤ГЁГ­Г ГІГ  Г®Г¤Г­Г  ГЁ Г± Г­ГҐГ© Г¬Г®Г¦Г­Г® Г°Г ГЎГ®ГІГ ГІГј Г¤Г Г«ГјГёГҐ
+		;проверяем значение
+		if (!InStr(znachenie," ")) ;если нет пробелов, то введёная координата одна и с ней можно работать дальше
 		{
 			
-			znachenie:=StrReplace(znachenie,"@","") ;ГЇГҐГ°ГҐГ§Г ГЇГЁГ±Г»ГўГ ГҐГ¬ Г§Г­Г Г·ГҐГ­ГЁГҐ, ГҐГ±Г«ГЁ Г®Г­Г® Г­ГҐ ГІГ ГЄГ®ГҐ, ГЄГ ГЄ Г­ГіГ¦Г­Г®
-			if (A_ThisHotkey="~Down") ;ГҐГ±Г«ГЁ ГўГ­ГЁГ§, ГІГ® ГЇГҐГ°ГҐГ¤ Г§Г­Г Г·ГҐГ­ГЁГҐГ¬ Г­ГіГ¦Г­Г® Г¤Г®ГЎГ ГўГЁГІГј Г§Г­Г ГЄ "-"
+			znachenie:=StrReplace(znachenie,"@","") ;перезаписываем значение, если оно не такое, как нужно
+			if (A_ThisHotkey="~Down") Or (A_ThisHotkey="~Left") ;если вниз, то перед значением нужно добавить знак "-"
 			{
 				firstSymbol:=SubStr(znachenie,1,1)
 				if (firstSymbol=" ")
@@ -923,148 +1041,15 @@ loop, %counterArr%
 			Send, +{Home}
 			sleep, 50
 			;MsgBox, stroka %stroka1%
-			Send, 0 %znachenie% 0
+			if (A_ThisHotkey="~Down") Or (A_ThisHotkey="~Up")
+				Send, 0 %znachenie% 0
+			else
+				Send, %znachenie% 0 0
+			
 			sleep, 50
 			GoTo EnterPress
 		}
 	}
-}
-
-labelRight:
-labelLeft:
-currentHotkey:=A_ThisHotkey
-;Sleep,500
-If (isWindowbCAD())
-{
-	if (toolActive=false)
-	{
-		toolActive:=true
-		;Key1:="X"
-		SetTimer, OtobrazhenieVvoda, 20
-		If (currentHotkey="~Left")
-		{
-			Napravlenie:="Г‚Г«ГҐГўГ®"
-			stroka:="-"
-		}
-		else
-			If (currentHotkey="~Right")
-			{
-				Napravlenie:="Г‚ГЇГ°Г ГўГ®"
-				stroka:=""
-			}
-			else
-				If (currentHotkey="~Up")
-				{
-					Napravlenie:="Г‚ГҐГ°Гµ"
-					stroka:=""
-				}
-				else
-					If (currentHotkey="~Down")
-					{
-						Napravlenie:="Г‚Г­ГЁГ§"
-						stroka:="-"
-					}
-		
-		;MyTimer:=0
-		ChitaemDalee:
-		SetTitleMatchMode, RegEx
-		WinSet, Disable,, ahk_exe %Stringbcadexe%
-		SetTitleMatchMode, 2
-		SetTitleMatchMode, Slow
-		MyTimer+=1
-		;BlockInput, Off
-		;ToolTip, Г†Г¤ВёГ¬ ГўГўГ®Г¤Г 
-		SetTimer, OtobrazhenieVvoda, On
-		Input, dannieKlavi,L1 T0.6,{Enter}
-		;~ WinGetTitle, titleWindow, A
-		;~ If !InStr(titleWindow,"bCAD")
-		;~ {
-			;~ SetTimer, OtobrazhenieVvoda, Off
-			;~ MsgBox, Error1okno
-			;~ Return
-		;~ }
-		if (dannieKlavi<>"")
-			stroka:=stroka dannieKlavi
-		
-		if (InStr(ErrorLevel,"EndKey")) Or (InStr(ErrorLevel,"Timeout")) ;ГҐГ±Г«ГЁ Г®ГЎГ­Г Г°ГіГ¦ГҐГ­Г® ГІГ ГЄГ®ГҐ, ГІГ® Г§Г ГўГҐГ°ГёГ ГҐГ¬
-		{
-			SetTimer, OtobrazhenieVvoda, Off
-			SetTitleMatchMode, RegEx
-			WinSet, Enable,, ahk_exe %Stringbcadexe%
-			SetTitleMatchMode, 2
-			SetTitleMatchMode, Slow
-			if (stroka<>0) And (stroka<>"-0") And (stroka<>"-")
-			{
-				If (currentHotkey="~Left") Or (currentHotkey="~Right")
-				{
-					Xcoord:=stroka
-					Ycoord:=0
-				}
-				else
-					If (currentHotkey="~Up") Or (currentHotkey="~Down")
-					{
-						Xcoord:=0
-						Ycoord:=stroka
-					}
-					else
-					{
-						ToolTip, currentHotkey %currentHotkey%
-						MsgBox, ГЄГ ГЄГ Гї-ГІГ® Г®ГёГЁГЎГЄГ 
-					}
-				
-				BlockInput,On
-				Send,@
-				Sleep,20
-				Send,%Xcoord% %Ycoord%
-				;ToolTip, Perehodim
-				ToolTip
-				Sleep,80
-				BlockInput,Off
-				GoTo EnterPress
-			}
-		}
-		else
-		{
-				if (ErrorLevel="Max")
-				{
-					SetTimer, OtobrazhenieVvoda, Off
-					;SetTimer, OtobrazhenieVvoda, Off
-					;WinSet, Enable,, ahk_exe %StringbcadexeReg%
-					GoTo ChitaemDalee
-				}
-				else
-				{
-					;BlockInput, Off
-					ToolTip
-					SetTimer, OtobrazhenieVvoda, Off
-					SetTitleMatchMode, RegEx
-					WinSet, Enable,, ahk_exe %Stringbcadexe%
-					SetTitleMatchMode, 2
-					SetTitleMatchMode, Slow
-					return
-				}
-		}
-	}
-}
-;BlockInput, Off
-SetTimer, OtobrazhenieVvoda, Off
-SetTitleMatchMode, RegEx
-WinSet, Enable,, ahk_exe %Stringbcadexe%
-SetTitleMatchMode, 2
-SetTitleMatchMode, Slow
-ToolTip
-toolActive:=false
-return
-
-;~ OtobrazhenieVvoda1:
-OtobrazhenieVvoda:
-ToolTip, %Napravlenie%: %stroka%
-WinGetTitle, titleWindow, A
-If !InStr(titleWindow,"bCAD") ;ГҐГ±Г«ГЁ ГЅГІГ® Г­ГҐ Г®ГЄГ­Г® bCAD, ГІГ® ГЇГҐГ°ГҐГ§Г ГЇГіГ±ГЄГ ГҐГ¬ Г±ГЄГ°ГЁГЇГІ
-{
-;	SetTimer, OtobrazhenieVvoda, Off
-	Reload
-	ExitApp
 }
 Return
 
@@ -1078,5 +1063,110 @@ if (ID1<>0)
 	SetTitleMatchMode, Slow
 	Reload
 	ExitApp
+}
+Return
+
+LoopDoska:
+cou2:=0
+WindowProstaDoska:="Простая доска"
+loop ; бесконечный цикл ожидания окна Простая Доска и обработки
+{
+	SetTitleMatchMode, RegEx
+	IDwindow:= WinExist("ahk_exe" Stringbcadexe) ;если bCAD запущен, то проводим доп.проверку
+	if (IDwindow<>0)
+	{
+		cou2++
+		SetTimer, RemoveToolTip, -100
+		SetTitleMatchMode, 1
+		SetTitleMatchMode, slow
+		WinWait, %WindowProstaDoska%
+		WinWaitActive,%WindowProstaDoska%
+		;читаем данные с кнопки Сердцевина
+		;WinActivate, ahk_id %IDwindow%
+		controlNeed:="WFC.BUTTON10" ;считываем данные с названия Сердцевины плиты
+		ControlGetText, Serdcevina, %controlNeed%, A
+		if (ErrorLevel)
+		{
+			ToolTip, Данные не распознаны
+			SetTimer, RemoveToolTip, -1000
+			Return
+		}
+		;отсекаем часть, если в наименовании Сердцевины указан путь
+		PosSlash:=InStr(Serdcevina,"\")
+		if (PosSlash)
+		{
+			Serdcevina:=SubStr(Serdcevina,PosSlash+1,StrLen(Serdcevina)-PosSlash)
+			;MsgBox, Serdcevina %Serdcevina%
+		}
+		
+		;ищем название плиты среди базы (которая была загружена из файла)
+		kolvoSootvetstviy:=couMasSootv/2
+		naideno:=false
+		loop, %kolvoSootvetstviy%
+		{
+			;MsgBox, % MassivSootvetstviya[A_Index*2-1] ":" Serdcevina
+			if (MassivSootvetstviya[A_Index*2-1]=Serdcevina) ;если сердцевина найдена, то записываем соответствующее значение для кромки
+			{
+				SootvetstvieKromki:=MassivSootvetstviya[A_Index*2]
+				;MsgBox, Serdcevina %Serdcevina% naideno %SootvetstvieKromki%
+				naideno:=true
+			}
+		}
+		
+		If (naideno=false) ;если ничего не найдено, то прекращаем работу
+		{
+			;MsgBox, Соответствие не найдено
+			ToolTip, Соответствие кромки не найдено
+			massivSootvetstvieKromki:=[]
+			findtextPublic:="-1"
+			SetTimer, RemoveToolTip, -1200
+			;Sleep, 500
+			;return
+		}
+		else
+		{
+			;ToolTip, %SootvetstvieKromki%
+			;парсим соответствие
+			
+			massivSootvetstvieKromki:=[]
+			tooltipstring:=""
+			;MsgBox, % massivSootvetstvieKromki.maxIndex()
+			NewLine:="`n"
+			loop, Parse, SootvetstvieKromki, ";"
+			{
+				massivSootvetstvieKromki[A_Index]:=A_LoopField
+				if (tooltipstring<>"")
+					tooltipstring:=tooltipstring NewLine ;добавляем новую линию
+				tooltipstring:=tooltipstring A_LoopField
+				;tooltipstring+="`n"
+				;~ ToolTip, % massivSootvetstvieKromki[A_Index]
+				
+			}
+			ToolTip,%tooltipstring%
+			;MsgBox, % massivSootvetstvieKromki.maxIndex()
+			
+			findtextPublic:=SootvetstvieKromki
+			SetTimer, RemoveToolTip, -1200
+		}
+		
+		;MsgBox, SootvetstvieKromki %SootvetstvieKromki%
+		;BlockInput, On
+		;CoordMode, Mouse, Relative
+		;Sleep, 100
+		;Click, 158 45
+		
+		SetTitleMatchMode, 1
+		;IDwindowDoska:=WinExist("A")
+		;controlNeed:="WFC.Window.812"
+		;ControlGetPos, PosX, PosY, ControlWidth, ControlHeight, %controlNeed%, ahk_id %IDwindowDoska%
+
+		;MsgBox, PosX %PosX%
+		;PosAllKromkaX:=PosX+ControlWidth/2
+		;PosAllKromkaY:=PosY+ControlHeight/2
+		WinWaitNotActive, %WindowProstaDoska%
+		;~ MsgBox, ololo1
+		;~ WinWaitClose, %WindowProstaDoska%
+		;~ MsgBox, ololo2
+	}
 }
 Return
